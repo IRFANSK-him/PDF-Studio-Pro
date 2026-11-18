@@ -124,3 +124,21 @@ def delete_pages(path, page_indices, output):
     finally:
         source.close()
     return destination
+
+
+def reorder_pages(path, page_order, output):
+    """Save a PDF with pages in the specified zero-based order."""
+    order = list(page_order)
+    destination = _output_path(output, [path])
+    source = _open_pdf(path)
+    reordered = fitz.open()
+    try:
+        if len(order) != source.page_count or sorted(order) != list(range(source.page_count)):
+            raise ValueError("Order must contain each page exactly once")
+        for index in order:
+            reordered.insert_pdf(source, from_page=index, to_page=index)
+        _save(reordered, destination)
+    finally:
+        reordered.close()
+        source.close()
+    return destination
