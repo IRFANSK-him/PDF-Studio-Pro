@@ -22,7 +22,7 @@ def sample(tmp_path):
 def test_png_export(sample, tmp_path):
     paths = export_page_images(sample, tmp_path)
     assert len(paths) == 1
-    assert paths[0].read_bytes()[:8] == b"\\x89PNG\\r\\n\\x1a\\n"
+    assert paths[0].read_bytes()[:8] == bytes.fromhex('89504e470d0a1a0a')
 
 
 def test_watermark(sample, tmp_path):
