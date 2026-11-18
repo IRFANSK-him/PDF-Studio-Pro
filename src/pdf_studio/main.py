@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem
 )
 import fitz
+from .history import PageOrderHistory
+from .search import find_text
 from .pdf_engine import PDFDocument
 from .page_tools import merge_pdfs, split_pdf, extract_pages, rotate_pages, delete_pages, reorder_pages
 
@@ -18,6 +20,10 @@ class MainWindow(QMainWindow):
         self.document = PDFDocument()
         self.page_index = 0
         self.zoom = 1.0
+        self.history = PageOrderHistory()
+        self.search_results = []
+        self.search_position = -1
+        self._restoring_order = False
         self.setWindowTitle("PDF Studio Pro")
         self.resize(1100, 800)
         self.page_label = QLabel("Open a PDF to begin")
@@ -32,6 +38,7 @@ class MainWindow(QMainWindow):
         self.thumbnails.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.thumbnails.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.thumbnails.itemClicked.connect(self.thumbnail_selected)
+        self.thumbnails.model().rowsMoved.connect(self.on_pages_moved)
         self.thumbnail_dock = QDockWidget("Pages — drag to reorder", self)
         self.thumbnail_dock.setWidget(self.thumbnails)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.thumbnail_dock)
@@ -42,6 +49,9 @@ class MainWindow(QMainWindow):
             QToolButton:hover { background: #b91c1c; border-radius: 5px; }
             QScrollArea { background: #15171c; border: none; }
             QLabel { color: #d1d5db; }
+            QListWidget { background: #1b1d24; color: #f3f4f6; border: none; selection-background-color: #991b1b; padding: 8px; }
+            QDockWidget { color: #f3f4f6; font-weight: 600; }
+            QStatusBar { background: #20232a; color: #f3f4f6; }
         """)
         toolbar = QToolBar("Document")
         self.addToolBar(toolbar)
@@ -57,10 +67,17 @@ class MainWindow(QMainWindow):
             ("Rotate 90°", self.rotate_file),
             ("Delete pages", self.delete_file),
             ("Save page order", self.save_page_order),
+            ("Undo order", self.undo_order),
+            ("Redo order", self.redo_order),
+            ("Find text", self.find_in_document),
+            ("Next match", self.next_match),
         ):
             action = QAction(label, self)
             action.triggered.connect(handler)
             toolbar.addAction(action)
+            shortcuts = {"Open PDF": "Ctrl+O", "Find text": "Ctrl+F", "Undo order": "Ctrl+Z", "Redo order": "Ctrl+Y", "Next match": "F3"}
+            if label in shortcuts:
+                action.setShortcut(shortcuts[label])
         self.statusBar().showMessage("Ready")
 
     def open_file(self):
@@ -72,6 +89,8 @@ class MainWindow(QMainWindow):
             self.page_index = 0
             self.zoom = 1.0
             self.populate_thumbnails()
+            self.search_results = []
+            self.search_position = -1
             self.show_page()
             self.setWindowTitle(f"PDF Studio Pro — {Path(path).name}")
         except Exception as exc:
@@ -202,6 +221,7 @@ class MainWindow(QMainWindow):
                 item = QListWidgetItem(QIcon(QPixmap.fromImage(image)), f"Page {index + 1}")
                 item.setData(Qt.ItemDataRole.UserRole, index)
                 self.thumbnails.addItem(item)
+        self.history.reset(list(range(self.thumbnails.count())))
 
     def thumbnail_selected(self, item):
         self.page_index = item.data(Qt.ItemDataRole.UserRole)
@@ -218,6 +238,61 @@ class MainWindow(QMainWindow):
         output = self._choose_output()
         if output:
             self._perform(lambda: reorder_pages(self.document.path, order, output))
+
+
+    def current_page_order(self):
+        return [self.thumbnails.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(self.thumbnails.count())]
+
+    def on_pages_moved(self, *args):
+        if not self._restoring_order:
+            self.history.record(self.current_page_order())
+
+    def restore_page_order(self, order):
+        self._restoring_order = True
+        try:
+            items = {}
+            while self.thumbnails.count():
+                item = self.thumbnails.takeItem(0)
+                items[item.data(Qt.ItemDataRole.UserRole)] = item
+            for index in order:
+                self.thumbnails.addItem(items[index])
+        finally:
+            self._restoring_order = False
+
+    def undo_order(self):
+        if self.history.can_undo:
+            self.restore_page_order(self.history.undo())
+
+    def redo_order(self):
+        if self.history.can_redo:
+            self.restore_page_order(self.history.redo())
+
+    def find_in_document(self):
+        if not self._require_document():
+            return
+        query, ok = QInputDialog.getText(self, "Find in PDF", "Search text:")
+        if not ok or not query.strip():
+            return
+        try:
+            self.search_results = find_text(self.document.path, query)
+            self.search_position = -1
+            if self.search_results:
+                self.next_match()
+            else:
+                QMessageBox.information(self, "Search", "No matching text found.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Search failed", str(exc))
+
+    def next_match(self):
+        if not self.search_results:
+            return
+        self.search_position = (self.search_position + 1) % len(self.search_results)
+        self.page_index = self.search_results[self.search_position][0]
+        self.show_page()
+        self.statusBar().showMessage(
+            f"Match {self.search_position + 1} of {len(self.search_results)} | Page {self.page_index + 1}"
+        )
 
     def closeEvent(self, event):
         self.document.close()
