@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QAction, QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox,
-    QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem
+    QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem, QLineEdit
 )
 import fitz
 from .editing import add_text, highlight_text, redact_text, encrypt_pdf
@@ -348,12 +348,12 @@ class MainWindow(QMainWindow):
         if not self._require_document():
             return
         user_pw, ok = QInputDialog.getText(
-            self, "PDF password", "Reader password:", QInputDialog.InputMode.TextInput
+            self, "PDF password", "Reader password:", QLineEdit.EchoMode.Password
         )
         if not ok or not user_pw:
             return
         owner_pw, ok = QInputDialog.getText(
-            self, "PDF owner password", "Owner password:", QInputDialog.InputMode.TextInput
+            self, "PDF owner password", "Owner password:", QLineEdit.EchoMode.Password
         )
         if not ok or not owner_pw:
             return
