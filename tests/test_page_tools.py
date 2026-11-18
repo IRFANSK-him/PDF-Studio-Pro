@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from pdf_studio.page_tools import (
-    merge_pdfs, extract_pages, split_pdf, rotate_pages, delete_pages
+    merge_pdfs, extract_pages, split_pdf, rotate_pages, delete_pages, reorder_pages
 )
 
 
@@ -75,3 +75,14 @@ def test_refuse_overwrite(samples, tmp_path):
 def test_reject_delete_all(samples, tmp_path):
     with pytest.raises(ValueError):
         delete_pages(samples[0], [0, 1, 2], tmp_path / "invalid.pdf")
+
+
+def test_reorder(samples, tmp_path):
+    output = tmp_path / "reordered.pdf"
+    reorder_pages(samples[0], [2, 0, 1], output)
+    assert count(output) == 3
+
+
+def test_reorder_rejects_invalid_order(samples, tmp_path):
+    with pytest.raises(ValueError):
+        reorder_pages(samples[0], [0, 0, 2], tmp_path / "invalid_order.pdf")
