@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem, QLineEdit
 )
 import fitz
+from .production_tools import export_page_images, watermark_pdf, insert_image, set_metadata
 from .editing import add_text, highlight_text, redact_text, encrypt_pdf
 from .history import PageOrderHistory
 from .search import find_text
@@ -76,6 +77,10 @@ class MainWindow(QMainWindow):
             ("Highlight", self.highlight_on_page),
             ("Redact", self.redact_on_page),
             ("Protect PDF", self.protect_pdf),
+            ("Export PNG", self.export_png),
+            ("Watermark", self.add_watermark),
+            ("Insert image", self.add_image),
+            ("Metadata", self.edit_metadata),
         ):
             action = QAction(label, self)
             action.triggered.connect(handler)
@@ -360,6 +365,47 @@ class MainWindow(QMainWindow):
         output = self._choose_output()
         if output:
             self._perform(lambda: encrypt_pdf(self.document.path, output, user_pw, owner_pw))
+
+
+    def export_png(self):
+        if not self._require_document():
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Select PNG export folder")
+        if folder:
+            self._perform(lambda: f"{len(export_page_images(self.document.path, folder))} PNG files in {folder}")
+
+    def add_watermark(self):
+        if not self._require_document():
+            return
+        value, ok = QInputDialog.getText(self, "Watermark", "Watermark text:")
+        if not ok or not value.strip():
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: watermark_pdf(self.document.path, output, value))
+
+    def add_image(self):
+        if not self._require_document():
+            return
+        image, _ = QFileDialog.getOpenFileName(self, "Select image", "", "Images (*.png *.jpg *.jpeg)")
+        if not image:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: insert_image(self.document.path, self.page_index, image, output))
+
+    def edit_metadata(self):
+        if not self._require_document():
+            return
+        title, ok = QInputDialog.getText(self, "PDF metadata", "Document title:")
+        if not ok:
+            return
+        author, ok = QInputDialog.getText(self, "PDF metadata", "Author:")
+        if not ok:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: set_metadata(self.document.path, output, title, author))
 
     def closeEvent(self, event):
         self.document.close()
