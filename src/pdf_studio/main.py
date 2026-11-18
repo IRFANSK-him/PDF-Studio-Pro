@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem, QLineEdit
 )
 import fitz
+from .extra_tools import images_to_pdf, compress_pdf, crop_pages
 from .online_license import activate as activate_online, validate_saved_license
 from .production_tools import export_page_images, watermark_pdf, insert_image, set_metadata
 from .editing import add_text, highlight_text, redact_text, encrypt_pdf
@@ -85,6 +86,9 @@ class MainWindow(QMainWindow):
             ("Watermark", self.add_watermark),
             ("Insert image", self.add_image),
             ("Metadata", self.edit_metadata),
+            ("Images to PDF", self.images_to_pdf),
+            ("Compress PDF", self.compress_current_pdf),
+            ("Crop pages", self.crop_current_pages),
         ):
             action = QAction(label, self)
             action.triggered.connect(handler)
@@ -440,6 +444,35 @@ class MainWindow(QMainWindow):
         output = self._choose_output()
         if output:
             self._perform(lambda: set_metadata(self.document.path, output, title, author))
+
+
+    def images_to_pdf(self):
+        if not self.check_license():
+            return
+        images, _ = QFileDialog.getOpenFileNames(self, "Select images in page order", "", "Images (*.png *.jpg *.jpeg *.bmp *.tif *.tiff)")
+        if not images:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: images_to_pdf(images, output))
+
+    def compress_current_pdf(self):
+        if not self._require_document():
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: compress_pdf(self.document.path, output))
+
+    def crop_current_pages(self):
+        pages = self._pages_prompt()
+        if pages is None:
+            return
+        margin, ok = QInputDialog.getInt(self, "Crop pages", "Crop margin in points on each edge:", 20, 0, 500)
+        if not ok:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: crop_pages(self.document.path, pages, (margin, margin, margin, margin), output))
 
     def closeEvent(self, event):
         self.document.close()
