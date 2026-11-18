@@ -1,10 +1,12 @@
 name: Windows build
 on:
   push:
-    branches: [main, development/phase-1-foundation]
+    branches: [main, 'development/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'development/**']
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: windows-latest
