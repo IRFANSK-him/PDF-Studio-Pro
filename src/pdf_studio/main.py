@@ -1,14 +1,15 @@
 """PDF Studio Pro — Phase 1 desktop PDF viewer."""
 import sys
 from pathlib import Path
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QImage, QPixmap
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QAction, QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox,
-    QScrollArea, QToolBar, QInputDialog
+    QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem
 )
+import fitz
 from .pdf_engine import PDFDocument
-from .page_tools import merge_pdfs, split_pdf, extract_pages, rotate_pages, delete_pages
+from .page_tools import merge_pdfs, split_pdf, extract_pages, rotate_pages, delete_pages, reorder_pages
 
 
 class MainWindow(QMainWindow):
@@ -26,6 +27,14 @@ class MainWindow(QMainWindow):
         self.scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scroll.setWidget(self.page_label)
         self.setCentralWidget(self.scroll)
+        self.thumbnails = QListWidget()
+        self.thumbnails.setIconSize(QSize(100, 140))
+        self.thumbnails.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.thumbnails.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.thumbnails.itemClicked.connect(self.thumbnail_selected)
+        self.thumbnail_dock = QDockWidget("Pages — drag to reorder", self)
+        self.thumbnail_dock.setWidget(self.thumbnails)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.thumbnail_dock)
         self.setStyleSheet("""
             QMainWindow { background: #15171c; }
             QToolBar { background: #20232a; border: none; spacing: 8px; padding: 8px; }
@@ -47,6 +56,7 @@ class MainWindow(QMainWindow):
             ("Extract", self.extract_file),
             ("Rotate 90°", self.rotate_file),
             ("Delete pages", self.delete_file),
+            ("Save page order", self.save_page_order),
         ):
             action = QAction(label, self)
             action.triggered.connect(handler)
@@ -61,6 +71,7 @@ class MainWindow(QMainWindow):
             self.document.open(path)
             self.page_index = 0
             self.zoom = 1.0
+            self.populate_thumbnails()
             self.show_page()
             self.setWindowTitle(f"PDF Studio Pro — {Path(path).name}")
         except Exception as exc:
@@ -178,6 +189,35 @@ class MainWindow(QMainWindow):
         output = self._choose_output()
         if output:
             self._perform(lambda: delete_pages(self.document.path, pages, output))
+
+
+    def populate_thumbnails(self):
+        self.thumbnails.clear()
+        if not self.document.path:
+            return
+        with fitz.open(str(self.document.path)) as doc:
+            for index, page in enumerate(doc):
+                pix = page.get_pixmap(matrix=fitz.Matrix(0.2, 0.2), alpha=False)
+                image = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888).copy()
+                item = QListWidgetItem(QIcon(QPixmap.fromImage(image)), f"Page {index + 1}")
+                item.setData(Qt.ItemDataRole.UserRole, index)
+                self.thumbnails.addItem(item)
+
+    def thumbnail_selected(self, item):
+        self.page_index = item.data(Qt.ItemDataRole.UserRole)
+        self.show_page()
+
+    def save_page_order(self):
+        if not self._require_document():
+            return
+        order = [self.thumbnails.item(i).data(Qt.ItemDataRole.UserRole)
+                 for i in range(self.thumbnails.count())]
+        if order == list(range(self.document.page_count)):
+            QMessageBox.information(self, "Page order", "Pages are already in their original order.")
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: reorder_pages(self.document.path, order, output))
 
     def closeEvent(self, event):
         self.document.close()
