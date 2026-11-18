@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem, QLineEdit
 )
 import fitz
+from .online_license import activate as activate_online, validate_saved_license
 from .production_tools import export_page_images, watermark_pdf, insert_image, set_metadata
 from .editing import add_text, highlight_text, redact_text, encrypt_pdf
 from .history import PageOrderHistory
@@ -20,6 +21,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.document = PDFDocument()
+        self.license_active = False
         self.page_index = 0
         self.zoom = 1.0
         self.history = PageOrderHistory()
@@ -58,6 +60,8 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Document")
         self.addToolBar(toolbar)
         for label, handler in (
+            ("Activate License", self.activate_license),
+            ("Check License", self.check_license),
             ("Open PDF", self.open_file),
             ("Previous", self.previous_page),
             ("Next", self.next_page),
@@ -90,9 +94,34 @@ class MainWindow(QMainWindow):
                 action.setShortcut(shortcuts[label])
         self.statusBar().showMessage("Ready")
 
+    def check_license(self):
+        try:
+            self.license_active = validate_saved_license()
+        except Exception as exc:
+            self.license_active = False
+            QMessageBox.warning(self, "License verification", "Online verification failed: " + str(exc))
+        if self.license_active:
+            self.statusBar().showMessage("Lifetime license active — verified online")
+        return self.license_active
+
+    def activate_license(self):
+        key, ok = QInputDialog.getText(self, "Activate PDF Studio Pro", "License key:")
+        if not ok or not key.strip():
+            return
+        try:
+            activate_online(key.strip())
+            self.license_active = True
+            QMessageBox.information(self, "Activated", "License activated for this PC.")
+        except Exception as exc:
+            self.license_active = False
+            QMessageBox.critical(self, "Activation failed", str(exc))
+
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
         if not path:
+            return
+        if not self.check_license():
+            QMessageBox.information(self, 'Activation required', 'Activate and verify a license online to open PDFs.')
             return
         try:
             self.document.open(path)
@@ -139,6 +168,9 @@ class MainWindow(QMainWindow):
 
 
     def _require_document(self):
+        if not self.check_license():
+            QMessageBox.warning(self, 'Activation required', 'Online license verification is required.')
+            return False
         if not self.document.path:
             QMessageBox.information(self, "Open PDF", "Open a PDF first.")
             return False
@@ -181,6 +213,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Operation failed", str(exc))
 
     def merge_files(self):
+        if not self.check_license():
+            return
         paths, _ = QFileDialog.getOpenFileNames(self, "Select PDFs in merge order", "", "PDF Files (*.pdf)")
         if len(paths) < 2:
             return
