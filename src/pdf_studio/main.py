@@ -5,9 +5,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox,
-    QScrollArea, QToolBar
+    QScrollArea, QToolBar, QInputDialog
 )
 from .pdf_engine import PDFDocument
+from .page_tools import merge_pdfs, split_pdf, extract_pages, rotate_pages, delete_pages
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +42,11 @@ class MainWindow(QMainWindow):
             ("Next", self.next_page),
             ("Zoom −", self.zoom_out),
             ("Zoom +", self.zoom_in),
+            ("Merge", self.merge_files),
+            ("Split", self.split_file),
+            ("Extract", self.extract_file),
+            ("Rotate 90°", self.rotate_file),
+            ("Delete pages", self.delete_file),
         ):
             action = QAction(label, self)
             action.triggered.connect(handler)
@@ -90,6 +96,88 @@ class MainWindow(QMainWindow):
         if self.document.page_count:
             self.zoom = max(0.25, round(self.zoom - 0.25, 2))
             self.show_page()
+
+
+    def _require_document(self):
+        if not self.document.path:
+            QMessageBox.information(self, "Open PDF", "Open a PDF first.")
+            return False
+        return True
+
+    def _choose_output(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save new PDF", "", "PDF Files (*.pdf)")
+        return path
+
+    def _pages_prompt(self):
+        if not self._require_document():
+            return None
+        raw, ok = QInputDialog.getText(
+            self, "Select pages", "Page numbers (e.g. 1,3-5):"
+        )
+        if not ok:
+            return None
+        try:
+            indices = []
+            for part in raw.replace(" ", "").split(","):
+                if "-" in part:
+                    first, last = map(int, part.split("-"))
+                    if first > last:
+                        raise ValueError("Page ranges must be ascending")
+                    indices.extend(range(first - 1, last))
+                else:
+                    indices.append(int(part) - 1)
+            if not indices or any(i < 0 or i >= self.document.page_count for i in indices):
+                raise ValueError("Page number outside document range")
+            return indices
+        except (ValueError, TypeError):
+            QMessageBox.warning(self, "Invalid pages", "Use page numbers such as 1,3-5.")
+            return None
+
+    def _perform(self, operation):
+        try:
+            result = operation()
+            QMessageBox.information(self, "PDF saved", f"Created: {result}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Operation failed", str(exc))
+
+    def merge_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(self, "Select PDFs in merge order", "", "PDF Files (*.pdf)")
+        if len(paths) < 2:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: merge_pdfs(paths, output))
+
+    def split_file(self):
+        if not self._require_document():
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Select output folder")
+        if folder:
+            self._perform(lambda: f"{len(split_pdf(self.document.path, folder))} files in {folder}")
+
+    def extract_file(self):
+        pages = self._pages_prompt()
+        if pages is None:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: extract_pages(self.document.path, pages, output))
+
+    def rotate_file(self):
+        pages = self._pages_prompt()
+        if pages is None:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: rotate_pages(self.document.path, pages, 90, output))
+
+    def delete_file(self):
+        pages = self._pages_prompt()
+        if pages is None:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: delete_pages(self.document.path, pages, output))
 
     def closeEvent(self, event):
         self.document.close()
