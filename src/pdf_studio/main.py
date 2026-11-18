@@ -5,9 +5,10 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QAction, QImage, QPixmap, QIcon
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QLabel, QMainWindow, QMessageBox,
-    QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem
+    QScrollArea, QToolBar, QInputDialog, QListWidget, QDockWidget, QAbstractItemView, QListWidgetItem, QLineEdit
 )
 import fitz
+from .editing import add_text, highlight_text, redact_text, encrypt_pdf
 from .history import PageOrderHistory
 from .search import find_text
 from .pdf_engine import PDFDocument
@@ -71,6 +72,10 @@ class MainWindow(QMainWindow):
             ("Redo order", self.redo_order),
             ("Find text", self.find_in_document),
             ("Next match", self.next_match),
+            ("Add text", self.add_text_to_page),
+            ("Highlight", self.highlight_on_page),
+            ("Redact", self.redact_on_page),
+            ("Protect PDF", self.protect_pdf),
         ):
             action = QAction(label, self)
             action.triggered.connect(handler)
@@ -293,6 +298,68 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Match {self.search_position + 1} of {len(self.search_results)} | Page {self.page_index + 1}"
         )
+
+
+    def add_text_to_page(self):
+        if not self._require_document():
+            return
+        text, ok = QInputDialog.getText(self, "Add text", "Text to insert:")
+        if not ok or not text.strip():
+            return
+        x, ok = QInputDialog.getDouble(self, "Text position", "X (PDF points):", 72, 0, 10000, 1)
+        if not ok:
+            return
+        y, ok = QInputDialog.getDouble(self, "Text position", "Y (PDF points):", 120, 0, 10000, 1)
+        if not ok:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: add_text(self.document.path, self.page_index, text, x, y, output))
+
+    def highlight_on_page(self):
+        if not self._require_document():
+            return
+        query, ok = QInputDialog.getText(self, "Highlight text", "Text on current page:")
+        if not ok or not query.strip():
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: highlight_text(self.document.path, self.page_index, query, output))
+
+    def redact_on_page(self):
+        if not self._require_document():
+            return
+        query, ok = QInputDialog.getText(self, "Permanent redaction", "Text to permanently remove:")
+        if not ok or not query.strip():
+            return
+        confirmation = QMessageBox.warning(
+            self, "Permanent redaction",
+            "This permanently removes matching content from the new PDF. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: redact_text(self.document.path, self.page_index, query, output))
+
+    def protect_pdf(self):
+        if not self._require_document():
+            return
+        user_pw, ok = QInputDialog.getText(
+            self, "PDF password", "Reader password:", QLineEdit.EchoMode.Password
+        )
+        if not ok or not user_pw:
+            return
+        owner_pw, ok = QInputDialog.getText(
+            self, "PDF owner password", "Owner password:", QLineEdit.EchoMode.Password
+        )
+        if not ok or not owner_pw:
+            return
+        output = self._choose_output()
+        if output:
+            self._perform(lambda: encrypt_pdf(self.document.path, output, user_pw, owner_pw))
 
     def closeEvent(self, event):
         self.document.close()
